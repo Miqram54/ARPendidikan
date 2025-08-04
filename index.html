@@ -104,10 +104,12 @@ function initialize() {
     });
 
     // Create graduation character (simplified version using basic geometries)
+    console.log("Creating graduation character...");
     createGraduationCharacter();
 }
 
 function createGraduationCharacter() {
+    console.log("Building 3D graduation character...");
     graduationCharacter = new THREE.Group();
 
     // Body (cylinder for torso)
@@ -217,6 +219,7 @@ function createGraduationCharacter() {
     graduationCharacter.position.y = 0.5;
 
     markerRoot1.add(graduationCharacter);
+    console.log("Graduation character added to scene successfully!");
 }
 
 function update() {
