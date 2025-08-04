@@ -2,249 +2,379 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-    <title>AR Graduation Character</title>
+    <title>Markerless AR Graduation Character</title>
     <!-- include three.js library -->
     <script src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'></script>
-    <!-- include jsartookit -->
-    <script src="jsartoolkit5/artoolkit.min.js"></script>
-    <script src="jsartoolkit5/artoolkit.api.js"></script>
-    <!-- include threex.artoolkit -->
-    <script src="threex/threex-artoolkitsource.js"></script>
-    <script src="threex/threex-artoolkitcontext.js"></script>
-    <script src="threex/threex-arbasecontrols.js"></script>
-    <script src="threex/threex-armarkercontrols.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        #info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 300px;
+        }
+    </style>
 </head>
 
-<body style='margin: 0px; overflow: hidden; font-family: Monospace; background-color: #000;'>
-
-<script>
-var scene, camera, renderer, clock, deltaTime, totalTime;
-var arToolkitSource, arToolkitContext;
-var markerRoot1;
-var graduationCharacter;
-
-initialize();
-animate();
-
-function initialize() {
-    scene = new THREE.Scene();
-
-    // Improved lighting for better 3D model visibility
-    let ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-    scene.add(ambientLight);
+<body>
+    <div id="controls">
+        <h3>🎓 AR Karakter Wisuda</h3>
+        <button onclick="toggleCharacter()">Show/Hide Character</button>
+        <button onclick="resetPosition()">Reset Position</button>
+        <br>
+        <label>Scale: <input type="range" id="scaleSlider" min="0.5" max="3" step="0.1" value="1.5" onchange="updateScale()"></label>
+    </div>
     
-    let directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(1, 1, 1);
-    scene.add(directionalLight);
+    <div id="info">
+        <strong>Instruksi:</strong><br>
+        • Karakter akan muncul otomatis di depan kamera<br>
+        • Gunakan tombol untuk mengontrol karakter<br>
+        • Gerakkan HP untuk melihat dari sudut berbeda
+    </div>
 
-    camera = new THREE.Camera();
-    scene.add(camera);
+    <script>
+        let scene, camera, renderer, clock;
+        let graduationCharacter;
+        let characterVisible = true;
+        let animationTime = 0;
 
-    renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        alpha: true
-    });
-    renderer.setClearColor(new THREE.Color('lightgrey'), 0);
-    renderer.setSize(640, 480);
-    renderer.domElement.style.position = 'absolute';
-    renderer.domElement.style.top = '0px';
-    renderer.domElement.style.left = '0px';
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    document.body.appendChild(renderer.domElement);
+        // Initialize the AR scene
+        init();
+        animate();
 
-    clock = new THREE.Clock();
-    deltaTime = 0;
-    totalTime = 0;
+        function init() {
+            console.log("Initializing markerless AR...");
+            
+            // Create scene
+            scene = new THREE.Scene();
 
-    ////////////////////////////////////////////////////////////
-    // setup arToolkitSource
-    ////////////////////////////////////////////////////////////
-    arToolkitSource = new THREEx.ArToolkitSource({
-        sourceType: 'webcam',
-    });
+            // Create camera with field of view similar to phone camera
+            camera = new THREE.PerspectiveCamera(
+                70, // field of view
+                window.innerWidth / window.innerHeight, // aspect ratio
+                0.1, // near clipping plane
+                1000 // far clipping plane
+            );
+            camera.position.set(0, 0, 0);
 
-    function onResize() {
-        arToolkitSource.onResize();
-        arToolkitSource.copySizeTo(renderer.domElement);
-        if (arToolkitContext.arController !== null) {
-            arToolkitSource.copySizeTo(arToolkitContext.arController.canvas);
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: true, 
+                alpha: true 
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0); // Transparent background
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // Add lighting
+            setupLighting();
+
+            // Create the graduation character
+            createGraduationCharacter();
+
+            // Add window resize handler
+            window.addEventListener('resize', onWindowResize, false);
+
+            // Initialize clock
+            clock = new THREE.Clock();
+
+            console.log("AR scene initialized successfully!");
         }
-    }
 
-    arToolkitSource.init(function onReady() {
-        onResize();
-    });
+        function setupLighting() {
+            // Ambient light for overall illumination
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.8);
+            scene.add(ambientLight);
 
-    window.addEventListener('resize', function() {
-        onResize();
-    });
+            // Directional light for shadows and depth
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
 
-    ////////////////////////////////////////////////////////////
-    // setup arToolkitContext
-    ////////////////////////////////////////////////////////////
-    arToolkitContext = new THREEx.ArToolkitContext({
-        cameraParametersUrl: 'data/camera_para.dat',
-        detectionMode: 'mono'
-    });
+            // Additional light from the front
+            const frontLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            frontLight.position.set(0, 5, 10);
+            scene.add(frontLight);
+        }
 
-    arToolkitContext.init(function onCompleted() {
-        camera.projectionMatrix.copy(arToolkitContext.getProjectionMatrix());
-    });
+        function createGraduationCharacter() {
+            console.log("Creating graduation character...");
+            
+            graduationCharacter = new THREE.Group();
 
-    ////////////////////////////////////////////////////////////
-    // setup markerRoots and 3D Character
-    ////////////////////////////////////////////////////////////
-    markerRoot1 = new THREE.Group();
-    scene.add(markerRoot1);
-    
-    let markerControls1 = new THREEx.ArMarkerControls(arToolkitContext, markerRoot1, {
-        type: 'pattern', 
-        patternUrl: "data/hiro.patt",
-    });
+            // Body (graduation gown)
+            const bodyGeometry = new THREE.CylinderGeometry(0.15, 0.25, 0.6, 12);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x1a1a4d // Dark blue graduation gown
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.3;
+            body.castShadow = true;
+            graduationCharacter.add(body);
 
-    // Create graduation character (simplified version using basic geometries)
-    console.log("Creating graduation character...");
-    createGraduationCharacter();
-}
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+            const headMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0xffdbac // Skin tone
+            });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 0.75;
+            head.castShadow = true;
+            graduationCharacter.add(head);
 
-function createGraduationCharacter() {
-    console.log("Building 3D graduation character...");
-    graduationCharacter = new THREE.Group();
+            // Eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.02, 8, 8);
+            const eyeMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.05, 0.8, 0.12);
+            graduationCharacter.add(leftEye);
+            
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(0.05, 0.8, 0.12);
+            graduationCharacter.add(rightEye);
 
-    // Body (cylinder for torso)
-    const bodyGeometry = new THREE.CylinderGeometry(0.15, 0.2, 0.5, 8);
-    const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x000080 }); // Dark blue graduation gown
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.position.y = 0.25;
-    graduationCharacter.add(body);
+            // Smile
+            const smileGeometry = new THREE.TorusGeometry(0.04, 0.01, 4, 8, Math.PI);
+            const smileMaterial = new THREE.MeshLambertMaterial({ color: 0xff6b6b });
+            const smile = new THREE.Mesh(smileGeometry, smileMaterial);
+            smile.position.set(0, 0.72, 0.12);
+            smile.rotation.z = Math.PI;
+            graduationCharacter.add(smile);
 
-    // Head (sphere)
-    const headGeometry = new THREE.SphereGeometry(0.12, 16, 16);
-    const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffdbac }); // Skin color
-    const head = new THREE.Mesh(headGeometry, headMaterial);
-    head.position.y = 0.62;
-    graduationCharacter.add(head);
+            // Graduation cap base
+            const capBaseGeometry = new THREE.CylinderGeometry(0.16, 0.16, 0.04, 16);
+            const capBaseMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+            const capBase = new THREE.Mesh(capBaseGeometry, capBaseMaterial);
+            capBase.position.y = 0.88;
+            capBase.castShadow = true;
+            graduationCharacter.add(capBase);
 
-    // Graduation cap base
-    const capBaseGeometry = new THREE.CylinderGeometry(0.13, 0.13, 0.03, 16);
-    const capBaseMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
-    const capBase = new THREE.Mesh(capBaseGeometry, capBaseMaterial);
-    capBase.position.y = 0.75;
-    graduationCharacter.add(capBase);
+            // Graduation cap board (mortarboard)
+            const capBoardGeometry = new THREE.BoxGeometry(0.35, 0.02, 0.35);
+            const capBoardMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+            const capBoard = new THREE.Mesh(capBoardGeometry, capBoardMaterial);
+            capBoard.position.y = 0.91;
+            capBoard.castShadow = true;
+            graduationCharacter.add(capBoard);
 
-    // Graduation cap top (square board)
-    const capTopGeometry = new THREE.BoxGeometry(0.3, 0.02, 0.3);
-    const capTopMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
-    const capTop = new THREE.Mesh(capTopGeometry, capTopMaterial);
-    capTop.position.y = 0.77;
-    graduationCharacter.add(capTop);
+            // Tassel
+            const tasselString = new THREE.CylinderGeometry(0.002, 0.002, 0.08, 6);
+            const tasselStringMaterial = new THREE.MeshLambertMaterial({ color: 0xffd700 });
+            const stringMesh = new THREE.Mesh(tasselString, tasselStringMaterial);
+            stringMesh.position.set(0.15, 0.87, 0.15);
+            graduationCharacter.add(stringMesh);
 
-    // Tassel
-    const tasselGeometry = new THREE.CylinderGeometry(0.005, 0.015, 0.1, 8);
-    const tasselMaterial = new THREE.MeshLambertMaterial({ color: 0xffd700 }); // Gold tassel
-    const tassel = new THREE.Mesh(tasselGeometry, tasselMaterial);
-    tassel.position.set(0.12, 0.73, 0.12);
-    tassel.rotation.z = Math.PI / 6;
-    graduationCharacter.add(tassel);
+            const tasselEnd = new THREE.SphereGeometry(0.015, 8, 8);
+            const tasselEndMaterial = new THREE.MeshLambertMaterial({ color: 0xffd700 });
+            const tasselMesh = new THREE.Mesh(tasselEnd, tasselEndMaterial);
+            tasselMesh.position.set(0.15, 0.83, 0.15);
+            graduationCharacter.add(tasselMesh);
 
-    // Arms
-    const armGeometry = new THREE.CylinderGeometry(0.03, 0.04, 0.3, 8);
-    const armMaterial = new THREE.MeshLambertMaterial({ color: 0x000080 });
-    
-    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
-    leftArm.position.set(-0.18, 0.35, 0);
-    leftArm.rotation.z = Math.PI / 6;
-    graduationCharacter.add(leftArm);
+            // Arms
+            const armGeometry = new THREE.CylinderGeometry(0.04, 0.05, 0.35, 8);
+            const armMaterial = new THREE.MeshLambertMaterial({ color: 0x1a1a4d });
+            
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.22, 0.4, 0);
+            leftArm.rotation.z = Math.PI / 8;
+            leftArm.castShadow = true;
+            graduationCharacter.add(leftArm);
 
-    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
-    rightArm.position.set(0.18, 0.35, 0);
-    rightArm.rotation.z = -Math.PI / 6;
-    graduationCharacter.add(rightArm);
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.22, 0.4, 0);
+            rightArm.rotation.z = -Math.PI / 8;
+            rightArm.castShadow = true;
+            graduationCharacter.add(rightArm);
 
-    // Hands
-    const handGeometry = new THREE.SphereGeometry(0.04, 8, 8);
-    const handMaterial = new THREE.MeshLambertMaterial({ color: 0xffdbac });
-    
-    const leftHand = new THREE.Mesh(handGeometry, handMaterial);
-    leftHand.position.set(-0.25, 0.2, 0);
-    graduationCharacter.add(leftHand);
+            // Hands
+            const handGeometry = new THREE.SphereGeometry(0.05, 12, 12);
+            const handMaterial = new THREE.MeshLambertMaterial({ color: 0xffdbac });
+            
+            const leftHand = new THREE.Mesh(handGeometry, handMaterial);
+            leftHand.position.set(-0.28, 0.22, 0);
+            graduationCharacter.add(leftHand);
 
-    const rightHand = new THREE.Mesh(handGeometry, handMaterial);
-    rightHand.position.set(0.25, 0.2, 0);
-    graduationCharacter.add(rightHand);
+            const rightHand = new THREE.Mesh(handGeometry, handMaterial);
+            rightHand.position.set(0.28, 0.22, 0);
+            graduationCharacter.add(rightHand);
 
-    // Diploma (cylinder for rolled paper)
-    const diplomaGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.15, 8);
-    const diplomaMaterial = new THREE.MeshLambertMaterial({ color: 0xf5f5dc }); // Beige/cream color
-    const diploma = new THREE.Mesh(diplomaGeometry, diplomaMaterial);
-    diploma.position.set(0.25, 0.2, 0);
-    diploma.rotation.z = Math.PI / 2;
-    graduationCharacter.add(diploma);
+            // Diploma scroll
+            const diplomaGeometry = new THREE.CylinderGeometry(0.025, 0.025, 0.18, 12);
+            const diplomaMaterial = new THREE.MeshLambertMaterial({ color: 0xf5f5dc });
+            const diploma = new THREE.Mesh(diplomaGeometry, diplomaMaterial);
+            diploma.position.set(0.28, 0.22, 0);
+            diploma.rotation.z = Math.PI / 2;
+            diploma.castShadow = true;
+            graduationCharacter.add(diploma);
 
-    // Red ribbon on diploma
-    const ribbonGeometry = new THREE.TorusGeometry(0.025, 0.005, 4, 8);
-    const ribbonMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 });
-    const ribbon = new THREE.Mesh(ribbonGeometry, ribbonMaterial);
-    ribbon.position.set(0.25, 0.2, 0);
-    ribbon.rotation.y = Math.PI / 2;
-    graduationCharacter.add(ribbon);
+            // Red ribbon on diploma
+            const ribbonGeometry = new THREE.TorusGeometry(0.03, 0.008, 6, 12);
+            const ribbonMaterial = new THREE.MeshLambertMaterial({ color: 0xdc143c });
+            const ribbon = new THREE.Mesh(ribbonGeometry, ribbonMaterial);
+            ribbon.position.set(0.28, 0.22, 0);
+            ribbon.rotation.y = Math.PI / 2;
+            graduationCharacter.add(ribbon);
 
-    // Legs
-    const legGeometry = new THREE.CylinderGeometry(0.04, 0.05, 0.4, 8);
-    const legMaterial = new THREE.MeshLambertMaterial({ color: 0x000080 });
-    
-    const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
-    leftLeg.position.set(-0.08, -0.2, 0);
-    graduationCharacter.add(leftLeg);
+            // Legs
+            const legGeometry = new THREE.CylinderGeometry(0.05, 0.06, 0.4, 8);
+            const legMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(-0.1, -0.2, 0);
+            leftLeg.castShadow = true;
+            graduationCharacter.add(leftLeg);
 
-    const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
-    rightLeg.position.set(0.08, -0.2, 0);
-    graduationCharacter.add(rightLeg);
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(0.1, -0.2, 0);
+            rightLeg.castShadow = true;
+            graduationCharacter.add(rightLeg);
 
-    // Shoes
-    const shoeGeometry = new THREE.BoxGeometry(0.08, 0.05, 0.15);
-    const shoeMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
-    
-    const leftShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
-    leftShoe.position.set(-0.08, -0.42, 0.03);
-    graduationCharacter.add(leftShoe);
+            // Shoes
+            const shoeGeometry = new THREE.BoxGeometry(0.1, 0.06, 0.18);
+            const shoeMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+            
+            const leftShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
+            leftShoe.position.set(-0.1, -0.42, 0.04);
+            leftShoe.castShadow = true;
+            graduationCharacter.add(leftShoe);
 
-    const rightShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
-    rightShoe.position.set(0.08, -0.42, 0.03);
-    graduationCharacter.add(rightShoe);
+            const rightShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
+            rightShoe.position.set(0.1, -0.42, 0.04);
+            rightShoe.castShadow = true;
+            graduationCharacter.add(rightShoe);
 
-    // Scale and position the entire character
-    graduationCharacter.scale.set(1.5, 1.5, 1.5);
-    graduationCharacter.position.y = 0.5;
+            // Position the character in front of camera
+            graduationCharacter.position.set(0, -0.5, -2); // 2 meters in front of camera
+            graduationCharacter.scale.set(1.5, 1.5, 1.5);
 
-    markerRoot1.add(graduationCharacter);
-    console.log("Graduation character added to scene successfully!");
-}
+            scene.add(graduationCharacter);
+            console.log("Graduation character created and added to scene!");
+        }
 
-function update() {
-    if (arToolkitSource.ready !== false)
-        arToolkitContext.update(arToolkitSource.domElement);
-    
-    // Add some animation to make the character more lively
-    if (graduationCharacter) {
-        graduationCharacter.rotation.y += 0.005; // Slow rotation
-        graduationCharacter.position.y = 0.5 + Math.sin(totalTime * 2) * 0.05; // Gentle bobbing motion
-    }
-}
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = clock.getDelta();
+            animationTime += deltaTime;
 
-function render() {
-    renderer.render(scene, camera);
-}
+            // Animate the character
+            if (graduationCharacter && characterVisible) {
+                // Gentle rotation
+                graduationCharacter.rotation.y = Math.sin(animationTime * 0.5) * 0.3;
+                
+                // Gentle floating motion
+                graduationCharacter.position.y = -0.5 + Math.sin(animationTime * 2) * 0.1;
+                
+                // Tassel animation
+                const tassel = graduationCharacter.children.find(child => 
+                    child.position.x === 0.15 && child.position.z === 0.15
+                );
+                if (tassel) {
+                    tassel.rotation.z = Math.sin(animationTime * 3) * 0.2;
+                }
+            }
 
-function animate() {
-    requestAnimationFrame(animate);
-    deltaTime = clock.getDelta();
-    totalTime += deltaTime;
-    update();
-    render();
-}
-</script>
+            renderer.render(scene, camera);
+        }
 
+        // Control functions
+        function toggleCharacter() {
+            characterVisible = !characterVisible;
+            graduationCharacter.visible = characterVisible;
+            console.log("Character visibility:", characterVisible);
+        }
+
+        function resetPosition() {
+            if (graduationCharacter) {
+                graduationCharacter.position.set(0, -0.5, -2);
+                graduationCharacter.rotation.set(0, 0, 0);
+                console.log("Character position reset");
+            }
+        }
+
+        function updateScale() {
+            const scale = document.getElementById('scaleSlider').value;
+            if (graduationCharacter) {
+                graduationCharacter.scale.set(scale, scale, scale);
+                console.log("Character scale updated to:", scale);
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Touch controls for mobile
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        document.addEventListener('touchstart', function(event) {
+            touchStartX = event.touches[0].clientX;
+            touchStartY = event.touches[0].clientY;
+        });
+
+        document.addEventListener('touchmove', function(event) {
+            event.preventDefault();
+            
+            if (graduationCharacter) {
+                const deltaX = event.touches[0].clientX - touchStartX;
+                const deltaY = event.touches[0].clientY - touchStartY;
+                
+                // Rotate character based on touch movement
+                graduationCharacter.rotation.y += deltaX * 0.01;
+                graduationCharacter.rotation.x += deltaY * 0.01;
+                
+                touchStartX = event.touches[0].clientX;
+                touchStartY = event.touches[0].clientY;
+            }
+        });
+
+        console.log("Markerless AR Graduation Character loaded successfully!");
+    </script>
 </body>
 </html>
